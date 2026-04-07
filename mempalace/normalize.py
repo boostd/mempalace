@@ -7,6 +7,7 @@ Supported:
     - Claude.ai JSON export
     - ChatGPT conversations.json
     - Claude Code JSONL
+    - OpenAI Codex CLI JSONL
     - Slack JSON export
     - Plain text (pass through for paragraph chunking)
 
@@ -55,6 +56,10 @@ def _try_normalize_json(content: str) -> Optional[str]:
     if normalized:
         return normalized
 
+    normalized = _try_codex_jsonl(content)
+    if normalized:
+        return normalized
+
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -90,6 +95,54 @@ def _try_claude_code_jsonl(content: str) -> Optional[str]:
             if text:
                 messages.append(("assistant", text))
     if len(messages) >= 2:
+        return _messages_to_transcript(messages)
+    return None
+
+
+def _try_codex_jsonl(content: str) -> Optional[str]:
+    """OpenAI Codex CLI sessions (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl).
+
+    Uses only event_msg entries (user_message / agent_message) which represent
+    the canonical conversation turns. response_item entries are skipped because
+    they include synthetic context injections and duplicate the real messages.
+    """
+    lines = [line.strip() for line in content.strip().split("\n") if line.strip()]
+    messages = []
+    has_session_meta = False
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+
+        entry_type = entry.get("type", "")
+        if entry_type == "session_meta":
+            has_session_meta = True
+            continue
+
+        if entry_type != "event_msg":
+            continue
+
+        payload = entry.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+
+        payload_type = payload.get("type", "")
+        msg = payload.get("message")
+        if not isinstance(msg, str):
+            continue
+        text = msg.strip()
+        if not text:
+            continue
+
+        if payload_type == "user_message":
+            messages.append(("user", text))
+        elif payload_type == "agent_message":
+            messages.append(("assistant", text))
+
+    if len(messages) >= 2 and has_session_meta:
         return _messages_to_transcript(messages)
     return None
 
