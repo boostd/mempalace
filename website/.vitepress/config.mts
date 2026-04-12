@@ -1,7 +1,16 @@
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 
-const docsBase = process.env.DOCS_BASE || '/mempalace/'
+function normalizeBase(base?: string): string {
+  if (!base || base === '/') {
+    return '/'
+  }
+
+  return base.endsWith('/') ? base : `${base}/`
+}
+
+const docsBase = normalizeBase(process.env.DOCS_BASE || '/mempalace/')
+const editBranch = process.env.DOCS_EDIT_BRANCH || 'main'
 
 export default withMermaid(
   defineConfig({
@@ -91,7 +100,7 @@ export default withMermaid(
       },
 
       editLink: {
-        pattern: 'https://github.com/milla-jovovich/mempalace/edit/main/website/:path',
+        pattern: `https://github.com/milla-jovovich/mempalace/edit/${editBranch}/website/:path`,
         text: 'Edit this page on GitHub',
       },
     },
