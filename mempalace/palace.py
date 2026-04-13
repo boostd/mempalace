@@ -69,18 +69,22 @@ def mine_lock(source_file: str):
     try:
         if os.name == "nt":
             import msvcrt
+
             msvcrt.locking(lf.fileno(), msvcrt.LK_LOCK, 1)
         else:
             import fcntl
+
             fcntl.flock(lf, fcntl.LOCK_EX)
         yield
     finally:
         try:
             if os.name == "nt":
                 import msvcrt
+
                 msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)
             else:
                 import fcntl
+
                 fcntl.flock(lf, fcntl.LOCK_UN)
         except Exception:
             pass
