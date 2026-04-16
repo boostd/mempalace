@@ -1,6 +1,7 @@
 """Execution tests for Claude plugin hook wrapper scripts."""
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,10 +9,21 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_HOOKS_DIR = REPO_ROOT / ".claude-plugin" / "hooks"
+BASH = shutil.which("bash")
+
+pytestmark = pytest.mark.skipif(
+    BASH is None,
+    reason="bash required for Claude plugin hook wrapper tests",
+)
+
 SCRIPT_CASES = [
     ("mempal-stop-hook.sh", "stop"),
     ("mempal-precompact-hook.sh", "precompact"),
 ]
+
+
+def _shell_path(path: Path) -> str:
+    return path.as_posix()
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -27,11 +39,28 @@ def _make_bin_dir(tmp_path: Path, executables: dict[str, str]) -> Path:
     return bin_dir
 
 
-def _run_hook(script_name: str, payload: str, bin_dir: Path) -> subprocess.CompletedProcess[str]:
+def _capture_stdin_to(output_path: Path) -> str:
+    return (
+        'stdin_payload=""\n'
+        'while IFS= read -r line || [ -n "$line" ]; do\n'
+        '  stdin_payload="${stdin_payload}${line}"\n'
+        "done\n"
+        f'printf \'%s\' "$stdin_payload" > "{_shell_path(output_path)}"\n'
+    )
+
+
+def _run_hook(
+    script_name: str,
+    payload: str,
+    bin_dir: Path,
+) -> subprocess.CompletedProcess[str]:
+    assert BASH is not None
+
     env = os.environ.copy()
     env["PATH"] = str(bin_dir)
+
     return subprocess.run(
-        ["/bin/bash", str(PLUGIN_HOOKS_DIR / script_name)],
+        [BASH, str(PLUGIN_HOOKS_DIR / script_name)],
         input=payload,
         text=True,
         capture_output=True,
@@ -46,13 +75,14 @@ def test_plugin_hook_wrapper_prefers_mempalace_cli(
 ) -> None:
     args_file = tmp_path / "args.txt"
     stdin_file = tmp_path / "stdin.json"
+
     bin_dir = _make_bin_dir(
         tmp_path,
         {
             "mempalace": (
                 "#!/bin/sh\n"
-                f'printf \'%s\' "$*" > "{args_file}"\n'
-                f'/bin/cat > "{stdin_file}"\n'
+                f'printf \'%s\' "$*" > "{_shell_path(args_file)}"\n'
+                f"{_capture_stdin_to(stdin_file)}"
                 "printf '{}\\n'\n"
             ),
             "python": "#!/bin/sh\nexit 99\n",
@@ -79,13 +109,14 @@ def test_plugin_hook_wrapper_falls_back_to_importable_python(
 ) -> None:
     args_file = tmp_path / "args.txt"
     stdin_file = tmp_path / "stdin.json"
+
     python_stub = (
         "#!/bin/sh\n"
         'if [ "$1" = "-c" ]; then\n'
         "  exit 0\n"
         "fi\n"
-        f'printf \'%s\' "$*" > "{args_file}"\n'
-        f'/bin/cat > "{stdin_file}"\n'
+        f'printf \'%s\' "$*" > "{_shell_path(args_file)}"\n'
+        f"{_capture_stdin_to(stdin_file)}"
         "printf '{}\\n'\n"
     )
     bin_dir = _make_bin_dir(tmp_path, {python_name: python_stub})
@@ -132,7 +163,7 @@ def test_plugin_hook_wrapper_falls_back_to_python_when_python3_cannot_import(
                 'if [ "$1" = "-c" ]; then\n'
                 "  exit 1\n"
                 "fi\n"
-                f"printf 'used' > \"{bad_python3_used}\"\n"
+                f"printf 'used' > \"{_shell_path(bad_python3_used)}\"\n"
                 "echo 'No module named mempalace' >&2\n"
                 "exit 1\n"
             ),
@@ -141,8 +172,8 @@ def test_plugin_hook_wrapper_falls_back_to_python_when_python3_cannot_import(
                 'if [ "$1" = "-c" ]; then\n'
                 "  exit 0\n"
                 "fi\n"
-                f'printf \'%s\' "$*" > "{args_file}"\n'
-                f'/bin/cat > "{stdin_file}"\n'
+                f'printf \'%s\' "$*" > "{_shell_path(args_file)}"\n'
+                f"{_capture_stdin_to(stdin_file)}"
                 "printf '{}\\n'\n"
             ),
         },
