@@ -134,8 +134,35 @@ def _log(message: str):
 
 
 def _output(data: dict):
-    """Print JSON to stdout with consistent formatting (pretty-printed)."""
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    """Print JSON to stdout without importing modules that may redirect streams.
+
+    If mempalace.mcp_server is already loaded, reuse its saved real stdout fd.
+    Otherwise, write directly to fd 1 so hook responses still go to stdout even
+    if sys.stdout has been redirected elsewhere.
+    """
+    payload = (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+    real_stdout_fd: int | None = None
+    mcp_mod = sys.modules.get("mempalace.mcp_server") or sys.modules.get(
+        f"{__package__}.mcp_server" if __package__ else "mcp_server"
+    )
+    if mcp_mod is not None:
+        real_stdout_fd = getattr(mcp_mod, "_REAL_STDOUT_FD", None)
+
+    fd = real_stdout_fd if real_stdout_fd is not None else 1
+    offset = 0
+    try:
+        while offset < len(payload):
+            try:
+                offset += os.write(fd, payload[offset:])
+            except InterruptedError:
+                continue
+        return
+    except OSError:
+        pass
+
+    sys.stdout.buffer.write(payload)
+    sys.stdout.buffer.flush()
 
 
 def _get_mine_dir(transcript_path: str = "") -> str:
@@ -259,10 +286,29 @@ def hook_stop(data: dict, harness: str):
     stop_hook_active = parsed["stop_hook_active"]
     transcript_path = parsed["transcript_path"]
 
-    # If already in a save cycle, let through (infinite-loop prevention)
+    # If already in a block-mode save cycle, let through (infinite-loop prevention).
+    # Silent mode saves directly without returning {"decision":"block"}, so there's
+    # no loop to prevent — and Claude Code's plugin dispatch sets this flag on every
+    # fire after the first, which would otherwise suppress all subsequent auto-saves.
     if str(stop_hook_active).lower() in ("true", "1", "yes"):
-        _output({})
-        return
+        # Safe default: assume silent mode on any config-read failure so saves
+        # proceed rather than being silently dropped. Silent mode is the default
+        # (v3.3.0+), so if we can't read config, behave as if it's still on.
+        silent_guard = True
+        try:
+            from .config import MempalaceConfig
+        except ImportError as exc:
+            _log(
+                f"WARNING: could not import MempalaceConfig for stop guard: {exc}; defaulting to silent mode"
+            )
+        else:
+            try:
+                silent_guard = MempalaceConfig().hook_silent_save
+            except AttributeError as exc:
+                _log(f"WARNING: could not read hook_silent_save: {exc}; defaulting to silent mode")
+        if not silent_guard:
+            _output({})
+            return
 
     # Count human messages
     exchange_count = _count_human_messages(transcript_path)
