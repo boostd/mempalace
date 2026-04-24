@@ -490,14 +490,29 @@ def _parse_harness_input(data: dict, harness: str) -> dict:
 def _wing_from_transcript_path(transcript_path: str) -> str:
     """Derive a project wing name from a Claude Code transcript path.
 
-    Claude Code stores transcripts at:
+    Claude Code encodes the project's source directory by replacing path
+    separators with dashes, producing folders like:
         ~/.claude/projects/-home-<user>-Projects-<project>/session.jsonl
-    We extract <project> and return ``wing_<project>`` to match the
-    AAAK_SPEC convention (``wing_user``, ``wing_agent``, ``wing_code``,
-    ``wing_<project>``…). Falls back to ``wing_sessions``.
+        ~/.claude/projects/-home-<user>-dev-<parent>-<project>/session.jsonl
+        ~/.claude/projects/-Users-<user>-<folder>-<project>/session.jsonl
+
+    The project directory name is the final dash-separated token of the
+    encoded folder. Returns ``wing_<project>`` (lowercased, spaces → ``_``).
+    Falls back to ``wing_sessions`` if the path does not match a Claude Code
+    project-folder layout.
     """
     # Normalize path separators for cross-platform (Windows backslashes)
     normalized = transcript_path.replace("\\", "/")
+    # Primary: pull the encoded project folder out of ``.claude/projects/``
+    # and take its last dash-separated token.
+    match = re.search(r"/\.claude/projects/-([^/]+)", normalized)
+    if match:
+        encoded = match.group(1)
+        project = encoded.rsplit("-", 1)[-1]
+        if project:
+            return f"wing_{project.lower().replace(' ', '_')}"
+    # Legacy fallback: explicit ``-Projects-<name>`` segment, useful for
+    # transcripts not under the standard Claude Code projects dir.
     match = re.search(r"-Projects-([^/]+?)(?:/|$)", normalized)
     if match:
         project = match.group(1).lower().replace(" ", "_")

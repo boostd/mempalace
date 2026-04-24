@@ -324,6 +324,24 @@ def test_wing_from_transcript_path_lowercases():
     assert _wing_from_transcript_path(path) == "wing_myproject"
 
 
+def test_wing_from_transcript_path_non_projects_layout():
+    # Linux users with code under ~/dev/, ~/src/, ~/code/ — no -Projects- segment.
+    # Project name is the final dash-separated token of the encoded folder.
+    path = "/home/igor/.claude/projects/-home-igor-dev-MemPalace-mempalace/session.jsonl"
+    assert _wing_from_transcript_path(path) == "wing_mempalace"
+
+
+def test_wing_from_transcript_path_macos_users_layout():
+    # macOS ~/ layout without a Projects/ segment.
+    path = "/Users/alice/.claude/projects/-Users-alice-code-MyApp/session.jsonl"
+    assert _wing_from_transcript_path(path) == "wing_myapp"
+
+
+def test_wing_from_transcript_path_nested_deep():
+    path = "/home/bob/.claude/projects/-home-bob-work-clients-acme-frontend/session.jsonl"
+    assert _wing_from_transcript_path(path) == "wing_frontend"
+
+
 # --- _log ---
 
 
