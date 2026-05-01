@@ -2053,7 +2053,7 @@ def handle_request(request):
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2, ensure_ascii=False)}]},
             }
         except Exception:
             logger.exception(f"Tool error in {tool_name}")
@@ -2114,7 +2114,7 @@ def main():
             request = json.loads(line)
             response = handle_request(request)
             if response is not None:
-                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
                 sys.stdout.flush()
         except KeyboardInterrupt:
             break
