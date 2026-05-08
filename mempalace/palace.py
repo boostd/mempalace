@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import re
+import sys
 import threading
 from typing import Optional
 
@@ -364,6 +365,41 @@ def _mark_released(lock_key: str) -> None:
     _holder_state().discard(lock_key)
 
 
+def _format_lock_holder(content: str) -> str:
+    """Render a lock-file body as 'PID N (cmdline)' for diagnostic messages."""
+    parts = content.split(maxsplit=1)
+    if not parts or not parts[0].isdigit():
+        return "another writer (identity not recorded)"
+    pid = parts[0]
+    if len(parts) > 1 and parts[1].strip():
+        return f"PID {pid} ({parts[1].strip()})"
+    return f"PID {pid}"
+
+
+def _read_lock_holder(lock_file) -> str:
+    """Read the prior holder's identity from the lock-file body, best-effort."""
+    try:
+        lock_file.seek(0)
+        content = lock_file.read().strip()
+    except OSError:
+        return "another writer (identity not recorded)"
+    if not content:
+        return "another writer (identity not recorded)"
+    return _format_lock_holder(content)
+
+
+def _write_lock_holder(lock_file) -> None:
+    """Record this process's identity in the lock-file body. Best-effort."""
+    try:
+        ident = f"{os.getpid()} {' '.join(sys.argv[:3])}".strip()
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(ident)
+        lock_file.flush()
+    except OSError:
+        pass
+
+
 @contextlib.contextmanager
 def mine_palace_lock(palace_path: str):
     """Per-palace non-blocking lock around the full `mine` pipeline.
@@ -407,7 +443,10 @@ def mine_palace_lock(palace_path: str):
         yield
         return
 
-    lf = open(lock_path, "w")
+    # "a+" preserves the prior holder's identity recorded inside the file so
+    # a failed acquire can name who is holding the lock (#1264). "w" mode
+    # would have truncated the file before we could read it.
+    lf = open(lock_path, "a+")
     acquired = False
     try:
         if os.name == "nt":
@@ -417,8 +456,10 @@ def mine_palace_lock(palace_path: str):
                 msvcrt.locking(lf.fileno(), msvcrt.LK_NBLCK, 1)
                 acquired = True
             except OSError as exc:
+                holder = _read_lock_holder(lf)
                 raise MineAlreadyRunning(
-                    f"another `mempalace mine` is already running against {resolved}"
+                    f"palace {resolved} is held by {holder}; "
+                    "wait for it to finish or stop the holder before retrying"
                 ) from exc
         else:
             import fcntl
@@ -427,9 +468,13 @@ def mine_palace_lock(palace_path: str):
                 fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 acquired = True
             except BlockingIOError as exc:
+                holder = _read_lock_holder(lf)
                 raise MineAlreadyRunning(
-                    f"another `mempalace mine` is already running against {resolved}"
+                    f"palace {resolved} is held by {holder}; "
+                    "wait for it to finish or stop the holder before retrying"
                 ) from exc
+        # Record our own identity for any later contender's diagnostic message.
+        _write_lock_holder(lf)
         _mark_held(palace_key)
         try:
             yield
