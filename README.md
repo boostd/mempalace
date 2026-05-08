@@ -49,10 +49,15 @@ Architecture, concepts, and mining flows:
 
 ## Install
 
+We recommend [`uv`](https://docs.astral.sh/uv/) — `uv tool install` puts
+the `mempalace` CLI in an isolated environment on your PATH:
+
 ```bash
-pip install mempalace
+uv tool install mempalace
 mempalace init ~/projects/myapp
 ```
+
+If you prefer pip, `pip install mempalace` still works.
 
 ## Quickstart
 
@@ -120,9 +125,9 @@ own research page for their published numbers.
 ```bash
 git clone https://github.com/MemPalace/mempalace.git
 cd mempalace
-pip install -e ".[dev]"
+uv sync --extra dev   # or: pip install -e ".[dev]"
 # see benchmarks/README.md for dataset download commands
-python benchmarks/longmemeval_bench.py /path/to/longmemeval_s_cleaned.json
+uv run python benchmarks/longmemeval_bench.py /path/to/longmemeval_s_cleaned.json
 ```
 
 ---

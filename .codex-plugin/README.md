@@ -6,7 +6,7 @@ Give your AI a persistent memory -- mine projects and conversations into a searc
 
 - Python 3.9+
 - Codex CLI installed and configured
-- `pip install mempalace`
+- `uv tool install mempalace` (recommended) or `pip install mempalace`
 
 ## Installation
 
@@ -39,10 +39,10 @@ git clone https://github.com/MemPalace/mempalace.git
 cd mempalace
 ```
 
-2. Install the Python package:
+2. Install the Python package (uv recommended):
 
 ```bash
-pip install -e .
+uv sync   # or: pip install -e .
 ```
 
 3. The `.codex-plugin` directory is already in the repo root. Codex CLI will detect it automatically when you run Codex from inside the repository.

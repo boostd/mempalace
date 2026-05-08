@@ -11,27 +11,36 @@ tell the user they need Python 3.9+ installed and stop.
 
 ## Step 2: Check if mempalace is already installed
 
-Run `pip show mempalace` to see if the package is already present. If it is,
-report the installed version and skip to Step 4.
+Run `mempalace --version` to see if the CLI is already on the user's PATH.
+If it succeeds, report the installed version and skip to Step 4.
+
+If that fails, fall back to `pip show mempalace` (and `uv tool list` if `uv`
+is available) to detect an existing install. If found, report it and skip
+to Step 4.
 
 ## Step 3: Install mempalace
 
-Run `pip install mempalace`.
+Prefer [`uv`](https://docs.astral.sh/uv/) — it isolates the CLI from system
+Python and avoids most environment-related failures:
 
-### Error handling -- pip failures
+1. If `uv` is on PATH (`uv --version`), run `uv tool install mempalace`.
+2. Otherwise run `pip install mempalace`.
 
-If `pip install mempalace` fails, try these fallbacks in order:
+### Error handling -- install failures
 
-1. Try `pip3 install mempalace`
-2. Try `python -m pip install mempalace` (or `python3 -m pip install mempalace`)
-3. If the error mentions missing build tools or compilation failures (commonly
+If the install command fails, try these fallbacks in order:
+
+1. If `uv tool install` failed, try `pip install mempalace` (or vice versa).
+2. Try `pip3 install mempalace`.
+3. Try `python -m pip install mempalace` (or `python3 -m pip install mempalace`).
+4. If the error mentions missing build tools or compilation failures (commonly
    from chromadb or its native dependencies):
    - On Linux/macOS: suggest `sudo apt-get install build-essential python3-dev`
      (Debian/Ubuntu) or `xcode-select --install` (macOS)
    - On Windows: suggest installing Microsoft C++ Build Tools from
      https://visualstudio.microsoft.com/visual-cpp-build-tools/
    - Then retry the install command
-4. If all attempts fail, report the error clearly and stop.
+5. If all attempts fail, report the error clearly and stop.
 
 ## Step 4: Ask for project directory
 
