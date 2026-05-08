@@ -287,28 +287,12 @@ def test_iso_date_error_names_field():
         sanitize_iso_date("yesterday", "valid_from")
 
 
-def test_iso_temporal_accepts_full_datetime():
-    assert sanitize_iso_temporal("2026-05-06T14:23:00") == "2026-05-06T14:23:00"
+def test_iso_temporal_accepts_full_date():
+    assert sanitize_iso_temporal("2026-05-06") == "2026-05-06"
 
 
-def test_iso_temporal_accepts_fractional_seconds():
-    assert sanitize_iso_temporal("2026-05-06T14:23:00.123") == "2026-05-06T14:23:00.123"
-
-
-def test_iso_temporal_accepts_utc_z_suffix():
+def test_iso_temporal_accepts_canonical_utc_datetime():
     assert sanitize_iso_temporal("2026-05-06T14:23:00Z") == "2026-05-06T14:23:00Z"
-
-
-def test_iso_temporal_accepts_timezone_offset():
-    assert sanitize_iso_temporal("2026-05-06T14:23:00+02:00") == "2026-05-06T14:23:00+02:00"
-
-
-def test_iso_temporal_accepts_negative_timezone_offset():
-    assert sanitize_iso_temporal("2026-05-06T14:23:00-05:30") == "2026-05-06T14:23:00-05:30"
-
-
-def test_iso_temporal_accepts_sqlite_space_separator():
-    assert sanitize_iso_temporal("2026-05-06 14:23:00") == "2026-05-06 14:23:00"
 
 
 def test_iso_temporal_strips_datetime_whitespace():
@@ -324,14 +308,29 @@ def test_iso_temporal_rejects_datetime_without_seconds():
         sanitize_iso_temporal("2026-05-06T14:23")
 
 
+def test_iso_temporal_rejects_naive_datetime():
+    with pytest.raises(ValueError):
+        sanitize_iso_temporal("2026-05-06T14:23:00")
+
+
+def test_iso_temporal_rejects_fractional_seconds():
+    with pytest.raises(ValueError):
+        sanitize_iso_temporal("2026-05-06T14:23:00.123Z")
+
+
+def test_iso_temporal_rejects_timezone_offset():
+    with pytest.raises(ValueError):
+        sanitize_iso_temporal("2026-05-06T14:23:00+02:00")
+
+
+def test_iso_temporal_rejects_space_separator():
+    with pytest.raises(ValueError):
+        sanitize_iso_temporal("2026-05-06 14:23:00")
+
+
 def test_iso_temporal_rejects_invalid_datetime_hour():
     with pytest.raises(ValueError):
-        sanitize_iso_temporal("2026-05-06T24:00:00")
-
-
-def test_iso_temporal_rejects_invalid_timezone_offset():
-    with pytest.raises(ValueError):
-        sanitize_iso_temporal("2026-05-06T14:23:00+24:00")
+        sanitize_iso_temporal("2026-05-06T24:00:00Z")
 
 
 def test_iso_temporal_rejects_invalid_calendar_date():

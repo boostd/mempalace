@@ -42,9 +42,56 @@ import sqlite3
 import threading
 from datetime import date, datetime
 from pathlib import Path
+from .config import sanitize_iso_temporal
 
 
 DEFAULT_KG_PATH = os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
+
+
+def _is_date_only_temporal(value: str) -> bool:
+    return isinstance(value, str) and len(value) == 10 and value[4] == "-" and value[7] == "-"
+
+
+def _temporal_start_key(value: str | None) -> str | None:
+    """Return the comparable instant for a valid_from/as_of value."""
+
+    if value is None:
+        return None
+
+    if _is_date_only_temporal(value):
+        return f"{value}T00:00:00Z"
+
+    return value
+
+
+def _temporal_end_key(value: str | None) -> str | None:
+    """Return the comparable instant for a valid_to value.
+
+    Date-only valid_to values represent the whole day for backward
+    compatibility with existing KG facts.
+    """
+
+    if value is None:
+        return None
+
+    if _is_date_only_temporal(value):
+        return f"{value}T23:59:59Z"
+
+    return value
+
+
+def _triple_valid_at(valid_from: str | None, valid_to: str | None, as_of: str) -> bool:
+    as_of_key = _temporal_start_key(as_of)
+    valid_from_key = _temporal_start_key(valid_from)
+    valid_to_key = _temporal_end_key(valid_to)
+
+    if valid_from_key is not None and valid_from_key > as_of_key:
+        return False
+
+    if valid_to_key is not None and valid_to_key < as_of_key:
+        return False
+
+    return True
 
 
 class KnowledgeGraph:
@@ -171,10 +218,17 @@ class KnowledgeGraph:
             add_triple("Max", "does", "swimming", valid_from="2025-01-01")
             add_triple("Alice", "worried_about", "Max injury", valid_from="2026-01", valid_to="2026-02")
         """
-        # Reject inverted intervals: a triple with valid_to < valid_from
-        # would never satisfy `valid_from <= as_of AND valid_to >= as_of`,
-        # so it would be invisible to every query — silently corrupt.
-        if valid_from is not None and valid_to is not None and valid_to < valid_from:
+        valid_from = sanitize_iso_temporal(valid_from, "valid_from")
+        valid_to = sanitize_iso_temporal(valid_to, "valid_to")
+
+        # Reject inverted intervals. Use temporal comparison keys rather than raw
+        # string comparison so legacy date-only values and canonical UTC datetimes can
+        # safely coexist.
+        if (
+            valid_from is not None
+            and valid_to is not None
+            and _temporal_end_key(valid_to) < _temporal_start_key(valid_from)
+        ):
             raise ValueError(
                 f"valid_to={valid_to!r} is before valid_from={valid_from!r}; "
                 "an inverted interval would be invisible to every KG query"
@@ -230,17 +284,34 @@ class KnowledgeGraph:
         return triple_id
 
     def invalidate(self, subject: str, predicate: str, obj: str, ended: str = None):
-        """Mark a relationship as no longer valid (set valid_to date)."""
+        """Mark a relationship as no longer valid (set valid_to date/time)."""
         sub_id = self._entity_id(subject)
         obj_id = self._entity_id(obj)
         pred = predicate.lower().replace(" ", "_")
-        ended = ended or date.today().isoformat()
+        ended = sanitize_iso_temporal(ended or date.today().isoformat(), "ended")
 
         with self._lock:
             conn = self._conn()
             with conn:
+                rows = conn.execute(
+                    "SELECT id, valid_from FROM triples "
+                    "WHERE subject=? AND predicate=? AND object=? AND valid_to IS NULL",
+                    (sub_id, pred, obj_id),
+                ).fetchall()
+
+                for row in rows:
+                    valid_from = row["valid_from"]
+                    if valid_from is not None and _temporal_end_key(ended) < _temporal_start_key(
+                        valid_from
+                    ):
+                        raise ValueError(
+                            f"valid_to={ended!r} is before valid_from={valid_from!r}; "
+                            "an inverted interval would be invisible to every KG query"
+                        )
+
                 conn.execute(
-                    "UPDATE triples SET valid_to=? WHERE subject=? AND predicate=? AND object=? AND valid_to IS NULL",
+                    "UPDATE triples SET valid_to=? "
+                    "WHERE subject=? AND predicate=? AND object=? AND valid_to IS NULL",
                     (ended, sub_id, pred, obj_id),
                 )
 
@@ -251,21 +322,23 @@ class KnowledgeGraph:
         Get all relationships for an entity.
 
         direction: "outgoing" (entity → ?), "incoming" (? → entity), "both"
-        as_of: date string — only return facts valid at that time
+        as_of: ISO date or canonical UTC datetime — only return facts valid then
         """
+        as_of = sanitize_iso_temporal(as_of, "as_of")
         eid = self._entity_id(name)
-
         results = []
         with self._lock:
             conn = self._conn()
 
             if direction in ("outgoing", "both"):
-                query = "SELECT t.*, e.name as obj_name FROM triples t JOIN entities e ON t.object = e.id WHERE t.subject = ?"
-                params = [eid]
-                if as_of:
-                    query += " AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)"
-                    params.extend([as_of, as_of])
-                for row in conn.execute(query, params).fetchall():
+                query = (
+                    "SELECT t.*, e.name as obj_name FROM triples t "
+                    "JOIN entities e ON t.object = e.id WHERE t.subject = ?"
+                )
+                for row in conn.execute(query, [eid]).fetchall():
+                    if as_of and not _triple_valid_at(row["valid_from"], row["valid_to"], as_of):
+                        continue
+
                     results.append(
                         {
                             "direction": "outgoing",
@@ -281,12 +354,14 @@ class KnowledgeGraph:
                     )
 
             if direction in ("incoming", "both"):
-                query = "SELECT t.*, e.name as sub_name FROM triples t JOIN entities e ON t.subject = e.id WHERE t.object = ?"
-                params = [eid]
-                if as_of:
-                    query += " AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)"
-                    params.extend([as_of, as_of])
-                for row in conn.execute(query, params).fetchall():
+                query = (
+                    "SELECT t.*, e.name as sub_name FROM triples t "
+                    "JOIN entities e ON t.subject = e.id WHERE t.object = ?"
+                )
+                for row in conn.execute(query, [eid]).fetchall():
+                    if as_of and not _triple_valid_at(row["valid_from"], row["valid_to"], as_of):
+                        continue
+
                     results.append(
                         {
                             "direction": "incoming",
@@ -300,11 +375,11 @@ class KnowledgeGraph:
                             "current": row["valid_to"] is None,
                         }
                     )
-
         return results
 
     def query_relationship(self, predicate: str, as_of: str = None):
         """Get all triples with a given relationship type."""
+        as_of = sanitize_iso_temporal(as_of, "as_of")
         pred = predicate.lower().replace(" ", "_")
         query = """
             SELECT t.*, s.name as sub_name, o.name as obj_name
@@ -313,15 +388,13 @@ class KnowledgeGraph:
             JOIN entities o ON t.object = o.id
             WHERE t.predicate = ?
         """
-        params = [pred]
-        if as_of:
-            query += " AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)"
-            params.extend([as_of, as_of])
-
         results = []
         with self._lock:
             conn = self._conn()
-            for row in conn.execute(query, params).fetchall():
+            for row in conn.execute(query, [pred]).fetchall():
+                if as_of and not _triple_valid_at(row["valid_from"], row["valid_to"], as_of):
+                    continue
+
                 results.append(
                     {
                         "subject": row["sub_name"],

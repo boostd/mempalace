@@ -86,15 +86,21 @@ def sanitize_kg_value(value: str, field_name: str = "value") -> str:
 # ISO-8601 temporal validator for knowledge-graph temporal parameters
 # (as_of, valid_from, valid_to, ended).
 #
-# KG temporal values are stored as TEXT. We accept complete date and datetime
-# forms, but still reject partial dates like YYYY or YYYY-MM because those can
-# silently miss rows in lexicographic comparisons.
+# The KG stores temporal values as TEXT. Lexicographic comparisons are only
+# safe when all datetime values use one canonical shape. Accept full dates
+# for legacy compatibility and exact UTC datetimes for sub-day precision.
+#
+# Accepted:
+#   YYYY-MM-DD
+#   YYYY-MM-DDTHH:MM:SSZ
+#
+# Rejected:
+#   partial dates, naive datetimes, timezone offsets, fractional seconds,
+#   and SQLite-style space-separated datetimes.
 _ISO_DATE_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$")
 
-_ISO_DATETIME_RE = re.compile(
-    r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
-    r"[T ](?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d"
-    r"(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$"
+_ISO_UTC_DATETIME_RE = re.compile(
+    r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])" r"T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\dZ$"
 )
 
 
@@ -105,9 +111,7 @@ def _validate_iso_temporal_calendar(value: str) -> None:
         date.fromisoformat(value)
         return
 
-    if _ISO_DATETIME_RE.match(value):
-        # datetime.fromisoformat accepts "+00:00"; normalize the common
-        # ISO-8601 "Z" UTC suffix for Python versions that require it.
+    if _ISO_UTC_DATETIME_RE.match(value):
         datetime.fromisoformat(value.replace("Z", "+00:00"))
         return
 
@@ -115,22 +119,18 @@ def _validate_iso_temporal_calendar(value: str) -> None:
 
 
 def sanitize_iso_temporal(value, field_name: str = "date"):
-    """Validate an ISO-8601 date or datetime string.
+    """Validate an ISO-8601 date or canonical UTC datetime string.
 
     Accepts ``None`` and ``""`` as pass-through values.
 
     Accepted non-empty string forms:
 
     - ``YYYY-MM-DD``
-    - ``YYYY-MM-DDTHH:MM:SS``
-    - ``YYYY-MM-DDTHH:MM:SS.fff``
     - ``YYYY-MM-DDTHH:MM:SSZ``
-    - ``YYYY-MM-DDTHH:MM:SS±HH:MM``
-    - ``YYYY-MM-DD HH:MM:SS``
 
-    Partial dates such as ``YYYY`` and ``YYYY-MM`` are rejected because KG
-    queries compare TEXT temporal values lexicographically and partials can
-    silently exclude valid facts.
+    Partial dates are rejected because KG queries compare TEXT temporal values.
+    Non-canonical datetime forms are rejected because mixed temporal string
+    formats can silently return wrong KG query results.
     """
 
     if value is None or value == "":
@@ -144,8 +144,8 @@ def sanitize_iso_temporal(value, field_name: str = "date"):
         _validate_iso_temporal_calendar(value)
     except ValueError:
         raise ValueError(
-            f"{field_name}={value!r} is not a valid ISO-8601 date or datetime "
-            "(expected YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"
+            f"{field_name}={value!r} is not a valid ISO-8601 date or UTC datetime "
+            "(expected YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)"
         ) from None
 
     return value
@@ -154,8 +154,8 @@ def sanitize_iso_temporal(value, field_name: str = "date"):
 def sanitize_iso_date(value, field_name: str = "date"):
     """Backward-compatible wrapper for ISO temporal validation.
 
-    Historically this accepted only full dates. It now accepts full ISO
-    datetimes too, but the old name is kept so existing imports continue to
+    Historically this accepted only full dates. It now also accepts canonical
+    UTC datetimes, but the old name is kept so existing imports continue to
     work.
     """
 
