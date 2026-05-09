@@ -267,9 +267,9 @@ def test_lock_failure_message_names_holder(tmp_path, monkeypatch):
                 pytest.fail("second acquire of same palace should have raised")
 
         msg = str(excinfo.value)
-        assert (
-            f"PID {holder_pid}" in msg
-        ), f"lock-failure message must name the holder PID; got: {msg!r}"
+        assert f"PID {holder_pid}" in msg, (
+            f"lock-failure message must name the holder PID; got: {msg!r}"
+        )
     finally:
         open(release, "w").close()
         holder.join(timeout=5)
