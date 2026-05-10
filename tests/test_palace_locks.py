@@ -177,11 +177,11 @@ def test_palace_path_is_normalized(tmp_path, monkeypatch):
 def test_reentrant_same_thread_passes_through(tmp_path, monkeypatch):
     """Same thread re-acquiring the same palace lock must not deadlock or raise.
 
-    This is the invariant that makes ``ChromaCollection`` write methods (which
-    take ``mine_palace_lock`` for MCP/direct-writer protection) compose with
-    ``miner.mine()`` (which already holds the lock for the entire mine
-    pipeline). Without the per-thread re-entrant guard the inner acquire
-    would self-deadlock on the outer flock.
+    This is the invariant that makes ``ChromaCollection`` write methods
+    (which take ``mine_palace_lock`` for MCP/direct-writer protection)
+    compose with ``miner.mine()`` (which already holds the lock for the
+    entire mine pipeline). Without the per-thread re-entrant guard the inner
+    acquire would self-deadlock on the outer flock.
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     palace = str(tmp_path / "palace")
@@ -189,16 +189,23 @@ def test_reentrant_same_thread_passes_through(tmp_path, monkeypatch):
         # Re-enter from the same thread — must yield without raising or hanging.
         with mine_palace_lock(palace):
             pass
-        # After the inner exits, the outer is still held: confirm via a
-        # subprocess that tries to acquire and reports back.
+        # After the inner exits, the outer is still held. Use spawn so the
+        # child does not inherit the parent's open lock fd or SQLite/Chroma
+        # process state from the full test suite.
         ctx = _get_mp_context()
         result_q = ctx.Queue()
         child = ctx.Process(target=_try_acquire_expect_busy, args=(palace, result_q))
-        child.start()
-        child.join(timeout=5)
-        assert (
-            result_q.get(timeout=1) == "busy"
-        ), "outer lock should still be held by parent after inner re-entrant exit"
+        try:
+            child.start()
+            assert (
+                result_q.get(timeout=10) == "busy"
+            ), "outer lock should still be held by parent after inner re-entrant exit"
+            child.join(timeout=5)
+            assert child.exitcode == 0
+        finally:
+            if child.is_alive():
+                child.terminate()
+                child.join(timeout=5)
 
 
 def _try_acquire_expect_busy(palace_path, result_q):

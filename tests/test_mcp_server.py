@@ -993,6 +993,195 @@ class TestKGTools:
         result = tool_kg_query(entity="Max", as_of="2026-03-15")
         assert "error" not in result, f"rejected valid date: {result}"
 
+    def test_kg_add_accepts_datetime_valid_from(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        from mempalace import mcp_server
+
+        result = mcp_server.tool_kg_add(
+            "Alice",
+            "works_at",
+            "Acme",
+            valid_from="2026-05-06T14:23:00Z",
+        )
+
+        assert result["success"] is True
+
+        facts = kg.query_entity("Alice", direction="outgoing")
+        fact = next(r for r in facts if r["predicate"] == "works_at" and r["object"] == "Acme")
+
+        assert fact["valid_from"] == "2026-05-06T14:23:00Z"
+
+    def test_kg_add_accepts_datetime_valid_to(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        from mempalace import mcp_server
+
+        result = mcp_server.tool_kg_add(
+            "Alice",
+            "worked_at",
+            "OldCo",
+            valid_from="2026-05-06T14:00:00Z",
+            valid_to="2026-05-06T15:00:00Z",
+        )
+
+        assert result["success"] is True
+
+        facts = kg.query_entity("Alice", direction="outgoing")
+        fact = next(r for r in facts if r["predicate"] == "worked_at" and r["object"] == "OldCo")
+
+        assert fact["valid_from"] == "2026-05-06T14:00:00Z"
+        assert fact["valid_to"] == "2026-05-06T15:00:00Z"
+
+    def test_kg_query_accepts_datetime_as_of(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        kg.add_triple(
+            "Alice",
+            "works_at",
+            "Acme",
+            valid_from="2026-05-06T14:00:00Z",
+        )
+
+        from mempalace import mcp_server
+
+        result = mcp_server.tool_kg_query(
+            "Alice",
+            as_of="2026-05-06T14:23:00Z",
+            direction="outgoing",
+        )
+
+        assert "error" not in result
+        assert result["as_of"] == "2026-05-06T14:23:00Z"
+        assert result["count"] == 1
+        assert result["facts"][0]["object"] == "Acme"
+
+    def test_kg_invalidate_accepts_datetime_ended(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        kg.add_triple(
+            "Alice",
+            "works_at",
+            "Acme",
+            valid_from="2026-05-06T14:00:00Z",
+        )
+
+        from mempalace import mcp_server
+
+        result = mcp_server.tool_kg_invalidate(
+            "Alice",
+            "works_at",
+            "Acme",
+            ended="2026-05-06T14:23:00Z",
+        )
+
+        assert result["success"] is True
+        assert result["ended"] == "2026-05-06T14:23:00Z"
+
+        facts = kg.query_entity("Alice", direction="outgoing")
+        fact = next(r for r in facts if r["predicate"] == "works_at" and r["object"] == "Acme")
+
+        assert fact["valid_to"] == "2026-05-06T14:23:00Z"
+
+    def test_kg_add_rejects_non_canonical_datetimes(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        from mempalace import mcp_server
+
+        invalid_values = [
+            "2026-05-06T14:23:00+02:00",
+            "2026-05-06T14:23:00-05:30",
+            "2026-05-06T14:23:00.123Z",
+            "2026-05-06 14:23:00",
+            "2026-05-06T14:23:00",
+        ]
+
+        for value in invalid_values:
+            result = mcp_server.tool_kg_add(
+                "Alice",
+                "works_at",
+                "Acme",
+                valid_from=value,
+            )
+
+            assert result["success"] is False, value
+            assert "valid_from" in result["error"]
+            assert "YYYY-MM-DDTHH:MM:SSZ" in result["error"]
+
+    def test_kg_query_rejects_non_canonical_datetime_as_of(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        from mempalace import mcp_server
+
+        invalid_values = [
+            "2026-05-06T14:23:00+02:00",
+            "2026-05-06T14:23:00-05:30",
+            "2026-05-06T14:23:00.123Z",
+            "2026-05-06 14:23:00",
+            "2026-05-06T14:23:00",
+        ]
+
+        for value in invalid_values:
+            result = mcp_server.tool_kg_query(
+                "Alice",
+                as_of=value,
+                direction="outgoing",
+            )
+
+            assert "error" in result, value
+            assert "as_of" in result["error"]
+            assert "YYYY-MM-DDTHH:MM:SSZ" in result["error"]
+
+    def test_kg_invalidate_rejects_non_canonical_ended(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        kg.add_triple(
+            "Alice",
+            "works_at",
+            "Acme",
+            valid_from="2026-05-06T14:00:00Z",
+        )
+
+        from mempalace import mcp_server
+
+        invalid_values = [
+            "2026-05-06T14:23:00+02:00",
+            "2026-05-06T14:23:00-05:30",
+            "2026-05-06T14:23:00.123Z",
+            "2026-05-06 14:23:00",
+            "2026-05-06T14:23:00",
+        ]
+
+        for value in invalid_values:
+            result = mcp_server.tool_kg_invalidate(
+                "Alice",
+                "works_at",
+                "Acme",
+                ended=value,
+            )
+
+            assert result["success"] is False, value
+            assert "ended" in result["error"]
+            assert "YYYY-MM-DDTHH:MM:SSZ" in result["error"]
+
+    def test_kg_add_rejects_timezone_offset_datetime(self, monkeypatch, config, palace_path, kg):
+        _patch_mcp_server(monkeypatch, config, kg)
+
+        from mempalace import mcp_server
+
+        result = mcp_server.tool_kg_add(
+            "Alice",
+            "works_at",
+            "Acme",
+            valid_from="2026-05-06T14:23:00+02:00",
+        )
+
+        assert result["success"] is False
+        assert "valid_from" in result["error"]
+        assert "YYYY-MM-DDTHH:MM:SSZ" in result["error"]
+
 
 # ── Diary Tools ─────────────────────────────────────────────────────────
 

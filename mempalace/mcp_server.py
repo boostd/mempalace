@@ -57,7 +57,7 @@ from .config import (  # noqa: E402
     sanitize_kg_value,
     sanitize_name,
     sanitize_content,
-    sanitize_iso_date,
+    sanitize_iso_temporal,
 )
 from .version import __version__  # noqa: E402
 from chromadb.errors import NotFoundError as _ChromaNotFoundError  # noqa: E402
@@ -1248,11 +1248,13 @@ def tool_kg_query(entity: str, as_of: str = None, direction: str = "both"):
     """Query the knowledge graph for an entity's relationships."""
     try:
         entity = sanitize_kg_value(entity, "entity")
-        as_of = sanitize_iso_date(as_of, "as_of")
+        as_of = sanitize_iso_temporal(as_of, "as_of")
     except ValueError as e:
         return {"error": str(e)}
+
     if direction not in ("outgoing", "incoming", "both"):
         return {"error": "direction must be 'outgoing', 'incoming', or 'both'"}
+
     results = _call_kg(lambda kg: kg.query_entity(entity, as_of=as_of, direction=direction))
     return {"entity": entity, "as_of": as_of, "facts": results, "count": len(results)}
 
@@ -1270,19 +1272,18 @@ def tool_kg_add(
     """Add a relationship to the knowledge graph.
 
     All temporal and provenance fields are optional. ``valid_to`` lets callers
-    backfill historical facts with a known end date in a single call (instead
-    of a separate ``kg_invalidate``). ``source_file`` and ``source_drawer_id``
-    are RFC 002 provenance fields populated by adapters / bulk importers.
+    backfill historical facts with a known end date/time in a single call
+    instead of a separate ``kg_invalidate`` call.
 
-    TODO(#1283): once the ISO-8601 validation PR lands, wire ``validate_iso_date``
-    over ``valid_from`` / ``valid_to`` here so malformed dates fail fast at the
-    MCP boundary instead of silently producing empty query results.
+    Temporal values accept either ``YYYY-MM-DD`` or canonical UTC datetimes in
+    the form ``YYYY-MM-DDTHH:MM:SSZ``.
     """
     try:
         subject = sanitize_kg_value(subject, "subject")
         predicate = sanitize_name(predicate, "predicate")
         object = sanitize_kg_value(object, "object")
-        valid_from = sanitize_iso_date(valid_from, "valid_from")
+        valid_from = sanitize_iso_temporal(valid_from, "valid_from")
+        valid_to = sanitize_iso_temporal(valid_to, "valid_to")
     except ValueError as e:
         return {"success": False, "error": str(e)}
 
@@ -1299,6 +1300,7 @@ def tool_kg_add(
             "source_drawer_id": source_drawer_id,
         },
     )
+
     triple_id = _call_kg(
         lambda kg: kg.add_triple(
             subject,
@@ -1315,23 +1317,25 @@ def tool_kg_add(
 
 
 def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str = None):
-    """Mark a fact as no longer true (set end date).
+    """Mark a fact as no longer true.
 
-    Returns the actual ``ended`` date that was stored — when the caller omits
-    ``ended``, the underlying graph stamps ``date.today()``, and the response
-    reflects that resolved value (instead of the literal string ``"today"``)
-    so callers can verify what was persisted.
+    Returns the actual ``ended`` date/time that was stored. When the caller
+    omits ``ended``, the underlying graph stamps ``date.today()`` and the
+    response reflects that resolved value.
 
-    TODO(#1283): apply ``validate_iso_date`` to ``ended`` once that PR lands.
+    Temporal values accept either ``YYYY-MM-DD`` or canonical UTC datetimes in
+    the form ``YYYY-MM-DDTHH:MM:SSZ``.
     """
     try:
         subject = sanitize_kg_value(subject, "subject")
         predicate = sanitize_name(predicate, "predicate")
         object = sanitize_kg_value(object, "object")
-        ended = sanitize_iso_date(ended, "ended")
+        ended = sanitize_iso_temporal(ended, "ended")
     except ValueError as e:
         return {"success": False, "error": str(e)}
+
     resolved_ended = ended or date.today().isoformat()
+
     _wal_log(
         "kg_invalidate",
         {
@@ -1341,6 +1345,7 @@ def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str = N
             "ended": resolved_ended,
         },
     )
+
     _call_kg(lambda kg: kg.invalidate(subject, predicate, object, ended=resolved_ended))
     return {
         "success": True,
@@ -1725,7 +1730,7 @@ TOOLS = {
                 },
                 "as_of": {
                     "type": "string",
-                    "description": "Date filter — only facts valid at this date (YYYY-MM-DD, optional)",
+                    "description": "Date/datetime filter — only facts valid at this time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, optional)",
                 },
                 "direction": {
                     "type": "string",
@@ -1749,11 +1754,11 @@ TOOLS = {
                 "object": {"type": "string", "description": "The entity being connected to"},
                 "valid_from": {
                     "type": "string",
-                    "description": "When this became true (YYYY-MM-DD, optional)",
+                    "description": "When this became true (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, optional)",
                 },
                 "valid_to": {
                     "type": "string",
-                    "description": "When this stopped being true (YYYY-MM-DD, optional). Use for backfilling already-ended historical facts.",
+                    "description": "When this stopped being true (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, optional). Use for backfilling already-ended historical facts.",
                 },
                 "source_closet": {
                     "type": "string",
@@ -1782,7 +1787,7 @@ TOOLS = {
                 "object": {"type": "string", "description": "Connected entity"},
                 "ended": {
                     "type": "string",
-                    "description": "When it stopped being true (YYYY-MM-DD, default: today)",
+                    "description": "When it stopped being true (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ, default: today)",
                 },
             },
             "required": ["subject", "predicate", "object"],
