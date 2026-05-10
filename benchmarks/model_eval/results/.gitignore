@@ -6,3 +6,4 @@
 # committed alongside, etc.). Future runs on other machines remain
 # gitignored by default.
 !2026-05-10-z690-ex-glacial.csv
+!2026-05-10-spotcheck-qwen3.csv
