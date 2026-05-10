@@ -1,0 +1,157 @@
+# Candidate models for evaluation.
+#
+# Pull with: ollama pull <tag>
+# Reference: ollama.com/library/<family>/tags
+#
+# Tiers control orchestrator default selection:
+#   tier1: must-evaluate set (~10 models, balanced size/quantization)
+#   tier2: worth running if time permits
+#   tier3: special cases (FP16 ceilings, QAT comparisons)
+
+candidates:
+  # ── Tier 1: balanced q4_K_M sweep across families ────────────────────
+  - tag: qwen3:4b-instruct-2507-q4_K_M
+    family: qwen3
+    size_b: 4.0
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 2500
+    tier: 1
+    notes: "Recommended baseline. Explicit instruct release."
+
+  - tag: qwen3:4b-instruct-2507-q8_0
+    family: qwen3
+    size_b: 4.0
+    variant: instruct
+    quantization: q8_0
+    expected_vram_mb: 4300
+    tier: 1
+    notes: "Higher precision comparator for the q4_K_M baseline."
+
+  - tag: qwen3:4b-thinking-2507-q4_K_M
+    family: qwen3
+    size_b: 4.0
+    variant: reasoning
+    quantization: q4_K_M
+    expected_vram_mb: 2500
+    tier: 1
+    notes: "Direct test: does the reasoning variant help or hurt classification?"
+
+  - tag: qwen2.5:3b-instruct-q4_K_M
+    family: qwen2.5
+    size_b: 3.0
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 1900
+    tier: 1
+    notes: "Strong older comparator. Often punches above its size class."
+
+  - tag: gemma3:4b-it-q4_K_M
+    family: gemma3
+    size_b: 4.0
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 3300
+    tier: 1
+    notes: "Top non-Qwen contender at this size."
+
+  - tag: gemma3:4b-it-qat
+    family: gemma3
+    size_b: 4.0
+    variant: instruct
+    quantization: qat
+    expected_vram_mb: 4000
+    tier: 1
+    notes: "Quantization-aware-trained variant. Compare to post-hoc q4_K_M."
+
+  - tag: gemma3:1b-it-q4_K_M
+    family: gemma3
+    size_b: 1.0
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 815
+    tier: 1
+    notes: "Smallest credible Gemma."
+
+  - tag: llama3.2:3b-instruct-q4_K_M
+    family: llama3.2
+    size_b: 3.0
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 2000
+    tier: 1
+    notes: ""
+
+  - tag: llama3.2:1b-instruct-q4_K_M
+    family: llama3.2
+    size_b: 1.0
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 808
+    tier: 1
+    notes: ""
+
+  - tag: phi3.5:3.8b-mini-instruct-q4_K_M
+    family: phi3.5
+    size_b: 3.8
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 2400
+    tier: 1
+    notes: ""
+
+  # ── Tier 2: smaller sizes for VRAM-constrained users ─────────────────
+  - tag: qwen3:1.7b-q4_K_M
+    family: qwen3
+    size_b: 1.7
+    variant: mixed
+    quantization: q4_K_M
+    expected_vram_mb: 1400
+    tier: 2
+    notes: "qwen3 small. Variant ambiguous in this tag."
+
+  - tag: qwen3:0.6b-q4_K_M
+    family: qwen3
+    size_b: 0.6
+    variant: mixed
+    quantization: q4_K_M
+    expected_vram_mb: 523
+    tier: 2
+    notes: "Edge-device size. Variant ambiguous."
+
+  - tag: qwen2.5:1.5b-instruct-q4_K_M
+    family: qwen2.5
+    size_b: 1.5
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 986
+    tier: 2
+    notes: ""
+
+  - tag: qwen2.5:0.5b-instruct-q4_K_M
+    family: qwen2.5
+    size_b: 0.5
+    variant: instruct
+    quantization: q4_K_M
+    expected_vram_mb: 398
+    tier: 2
+    notes: "Smallest viable for any non-trivial task."
+
+  - tag: gemma3:270m-it-q8_0
+    family: gemma3
+    size_b: 0.27
+    variant: instruct
+    quantization: q8_0
+    expected_vram_mb: 292
+    tier: 2
+    notes: "Tiny. Probably fails most tasks but worth a baseline."
+
+  # ── Tier 3: ceilings and special cases ───────────────────────────────
+  - tag: qwen3:4b-instruct-2507-fp16
+    family: qwen3
+    size_b: 4.0
+    variant: instruct
+    quantization: fp16
+    expected_vram_mb: 8100
+    tier: 3
+    notes: "Full-precision ceiling for the leader. Quality target."
