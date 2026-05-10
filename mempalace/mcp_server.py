@@ -51,6 +51,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from datetime import date, datetime  # noqa: E402
 from pathlib import Path  # noqa: E402
+from typing import Optional  # noqa: E402
 
 from .config import (  # noqa: E402
     MempalaceConfig,
@@ -220,7 +221,7 @@ _vector_disabled_reason = ""
 # Optional[dict] (not ``dict | None``) keeps Python 3.9 import-time
 # parsing happy — PEP 604 unions in annotations only became unconditional
 # at module-eval time in 3.10.
-_vector_capacity_status = None  # type: Optional[dict]
+_vector_capacity_status: Optional[dict] = None
 
 
 def _refresh_vector_disabled_flag() -> None:
@@ -800,9 +801,7 @@ def tool_search(
 
 
 def tool_check_duplicate(content: str, threshold: float = 0.9):
-    col = _get_collection()
-    if not col:
-        return _no_palace()
+    _refresh_vector_disabled_flag()
     if _vector_disabled:
         # Without a usable HNSW we can't compute cosine similarity for
         # near-duplicate detection. Report the limitation rather than
@@ -817,6 +816,9 @@ def tool_check_duplicate(content: str, threshold: float = 0.9):
                 "duplicate detection requires vector search; run `mempalace repair` to restore"
             ),
         }
+    col = _get_collection()
+    if not col:
+        return _no_palace()
     try:
         results = col.query(
             query_texts=[content],
