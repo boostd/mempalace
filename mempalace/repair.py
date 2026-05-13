@@ -598,9 +598,7 @@ def maybe_repair_poisoned_max_seq_id_before_rebuild(
         "  This can make writes report success while embeddings_queue grows "
         "and embeddings stay static."
     )
-    print(
-        "  Running the non-destructive max_seq_id repair instead of rebuilding " "the collection."
-    )
+    print("  Running the non-destructive max_seq_id repair instead of rebuilding the collection.")
     print(
         "  Queued writes remain in chroma.sqlite3 for Chroma to drain after "
         "the bookmark is unpoisoned."
@@ -679,10 +677,7 @@ class _DefaultProgress:
         if rate <= 0:
             return f" (elapsed {_format_eta(elapsed)})"
         eta = remaining / rate
-        return (
-            f" (elapsed {_format_eta(elapsed)}, "
-            f"rate {rate:.1f}/s, ETA {_format_eta(eta)})"
-        )
+        return f" (elapsed {_format_eta(elapsed)}, rate {rate:.1f}/s, ETA {_format_eta(eta)})"
 
 
 def rebuild_index(
